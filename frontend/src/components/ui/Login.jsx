@@ -1,5 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight } from 'lucide-react';
+import { AuthContext } from '../../context/AuthContext';
+import SelectInterests from './SelectInterest';
+ // adjust path if needed
 
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -8,9 +13,11 @@ const Login = () => {
     name: '',
     email: '',
     password: '',
-    confirmPassword: ''
   });
   const [isLoading, setIsLoading] = useState(false);
+ 
+  const { setUser, setIsLoggedIn } = useContext(AuthContext);
+  const navigate = useNavigate();
 
   const handleInputChange = (e) => {
     setFormData({
@@ -20,17 +27,38 @@ const Login = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      console.log(isLogin ? 'Login' : 'Signup', formData);
-      setIsLoading(false);
-      // Add your actual authentication logic here
-      // Example: await login(formData.email, formData.password);
-    }, 1500);
-  };
+  e.preventDefault();
+  setIsLoading(true);
+  
+  try {
+    const url = isLogin
+      ? 'http://localhost:8080/api/users/login'
+      : 'http://localhost:8080/api/users/register';
+
+    const payload = isLogin
+      ? { email: formData.email, password: formData.password }
+      : {
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+        };
+
+    const res = await axios.post(url, payload, { withCredentials: true });
+
+    setUser(res.data.user);
+    setIsLoggedIn(true); // ✅ This is the key!
+    setIsLoading(false);
+
+    if (isLogin) {
+      navigate('/'); // Go to homepage
+    } else {
+      navigate(`/select-interests?userId=${res.data.user._id}`);
+    }
+  } catch (err) {
+    setIsLoading(false);
+    alert(err.response?.data?.message || 'Something went wrong');
+  }
+};
 
   const toggleAuthMode = () => {
     setIsLogin(!isLogin);
@@ -38,7 +66,6 @@ const Login = () => {
       name: '',
       email: '',
       password: '',
-      confirmPassword: ''
     });
   };
 
@@ -60,8 +87,7 @@ const Login = () => {
 
         {/* Form Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
-          <div className="space-y-6">
-            {/* Name Field (Signup only) */}
+          <form className="space-y-6" onSubmit={handleSubmit}>
             {!isLogin && (
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700 block">
@@ -127,28 +153,8 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Confirm Password (Signup only) */}
-            {!isLogin && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700 block">
-                  Confirm Password
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-                  <input
-                    type="password"
-                    name="confirmPassword"
-                    value={formData.confirmPassword}
-                    onChange={handleInputChange}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
-                    placeholder="Confirm your password"
-                    required={!isLogin}
-                  />
-                </div>
-              </div>
-            )}
+           
 
-            {/* Forgot Password (Login only) */}
             {isLogin && (
               <div className="text-right">
                 <button
@@ -162,8 +168,7 @@ const Login = () => {
 
             {/* Submit Button */}
             <button
-              type="button"
-              onClick={handleSubmit}
+              type="submit"
               disabled={isLoading}
               className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200 flex items-center justify-center space-x-2 disabled:opacity-70 disabled:cursor-not-allowed"
             >
@@ -176,7 +181,7 @@ const Login = () => {
                 </>
               )}
             </button>
-          </div>
+          </form>
 
           {/* Divider */}
           <div className="relative my-6">

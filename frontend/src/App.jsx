@@ -10,7 +10,10 @@ import ContactUs from './components/Contact'
 import NewsletterSubscription from './components/ui/Subscription'
 import Home from './components/Home'
 import Login from './components/ui/Login'
-
+import SelectInterests from './components/ui/SelectInterest'
+import PlanMyTrip from './components/ui/PlanMyTrip'
+import FavoritePlaces from './components/ui/FavouritePlaces'
+import Interests from './components/ui/Interest'
 
 const RootLayout=()=>{
   return (
@@ -28,6 +31,10 @@ const router=createBrowserRouter(
       <Route index element={<Home/>} />
         <Route path='/places' element={<Places/>} />
         <Route path='/login' element={<Login/>} />
+        <Route path="/select-interests" element={<SelectInterests />} />
+        <Route path="/favourites" element={<FavoritePlaces />} />
+        <Route path="/plan" element={<PlanMyTrip />} />
+        <Route path="/interests" element={<Interests />} />
         <Route path='/about' element={<About/>} />
         <Route path='/contact' element={<ContactUs/>} />
     </Route>

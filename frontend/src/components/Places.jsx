@@ -1,19 +1,24 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useContext } from 'react';
+import axios from 'axios';
+
 import {
   MapPin,
+  Sun,
   Mountain,
   Calendar,
   Sparkles,
   PawPrint,
-  Sun,
   Compass,
   Palette,
+  Image as ImageIcon,
+  Heart,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AuthContext } from '../context/AuthContext';
 
-// Move to a separate file (e.g., data.js) in a real project
 const recommendations = {
   nature: [
-    'Pokhara', 'Chitwan National Park', 'Rara Lake', 'Panch Pokhari', 'Gosaikunda',
+    'Pokhara', 'Chitwan National Park', 'Rara Lake', 'Sisne Lake', 'Panch Pokhari', 'Gosaikunda',
     'Begnas Lake', 'Tilicho Lake', 'Shey Phoksundo Lake', 'Barun Valley', 'Kalinchowk',
     'Dhorpatan Hunting Reserve', 'Shivapuri Nagarjun National Park', 'Bardiya National Park',
     'Sagarmatha National Park', 'Khaptad National Park', 'Langtang Valley', 'Illam',
@@ -121,12 +126,11 @@ const categoryIcons = {
   offbeat: MapPin
 };
 
-// Use environment variables for API keys
-const UNSPLASH_ACCESS_KEY = 'iEvc6jd120BizU9zu2wZbmNwDFgTuU8Z-wD0a7R4DPc'
-const PIXABAY_ACCESS_KEY = '51460994-dcdee362e96d62a57b222a90a'
-const GEMINI_API_KEY ='AIzaSyBorhmI2yLNQ3pFGcpIw5K6DhMitc_cUi0';
 
-// Simple in-memory cache for API responses
+const UNSPLASH_ACCESS_KEY = 'Kvi9xQzqvJlcUPS4FN0tCQELubCDZaJqVC09hW7wiVg';
+const PIXABAY_ACCESS_KEY = '51460994-dcdee362e96d62a57b222a90a';
+const GEMINI_API_KEY = 'AIzaSyDJlDS7l3gNHOqACdT8UGDe6mIpLCAMN_o';
+
 const cache = new Map();
 
 const fetchImage = async (query) => {
@@ -137,23 +141,29 @@ const fetchImage = async (query) => {
     const unsplashResponse = await fetch(
       `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + ' Nepal')}&per_page=1&client_id=${UNSPLASH_ACCESS_KEY}`
     );
-    if (!unsplashResponse.ok) throw new Error(`Unsplash API error: ${unsplashResponse.status}`);
-    const unsplashData = await unsplashResponse.json();
-    if (unsplashData.results?.length > 0) {
-      const url = unsplashData.results[0].urls.small;
-      cache.set(cacheKey, url);
-      return url;
+    if (unsplashResponse.ok) {
+      const unsplashData = await unsplashResponse.json();
+      if (unsplashData.results?.length > 0) {
+        const url = unsplashData.results[0].urls.regular;
+        cache.set(cacheKey, url);
+        return url;
+      }
+    } else {
+      console.warn(`Unsplash API error for ${query}: Status ${unsplashResponse.status} - ${unsplashResponse.statusText}`);
     }
 
     const pixabayResponse = await fetch(
-      `https://pixabay.com/api/?key=${PIXABAY_ACCESS_KEY}&q=${encodeURIComponent(query + ' Nepal')}&image_type=photo&per_page=3`
+      `https://pixabay.com/api/?key=${PIXABAY_ACCESS_KEY}&q=${encodeURIComponent(query + ' Nepal')}&image_type=photo&per_page=3&safesearch=true`
     );
-    if (!pixabayResponse.ok) throw new Error(`Pixabay API error: ${pixabayResponse.status}`);
-    const pixabayData = await pixabayResponse.json();
-    if (pixabayData.hits?.length > 0) {
-      const url = pixabayData.hits[0].webformatURL;
-      cache.set(cacheKey, url);
-      return url;
+    if (pixabayResponse.ok) {
+      const pixabayData = await pixabayResponse.json();
+      if (pixabayData.hits?.length > 0) {
+        const url = pixabayData.hits[0].webformatURL;
+        cache.set(cacheKey, url);
+        return url;
+      }
+    } else {
+      console.warn(`Pixabay API error for ${query}: Status ${pixabayResponse.status} - ${pixabayResponse.statusText}`);
     }
 
     cache.set(cacheKey, null);
@@ -173,11 +183,16 @@ const fetchWikipediaDescription = async (place) => {
     const response = await fetch(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(place)}`
     );
-    if (!response.ok) throw new Error(`Wikipedia API error: ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`Wikipedia API error: Status ${response.status}`);
+    }
     const data = await response.json();
     if (data.extract) {
-      const words = data.extract.split(' ').slice(0, 30).join(' ');
-      const result = words.length < data.extract.length ? `${words}...` : words;
+      const words = data.extract.split(' ').slice(0, 30);
+      let result = words.join(' ');
+      if (words.length < data.extract.split(' ').length) {
+        result += '...';
+      }
       cache.set(cacheKey, result);
       return result;
     }
@@ -213,7 +228,10 @@ const generateGeminiDescription = async (place) => {
         }),
       }
     );
-    if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Gemini API error: Status ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+    }
     const data = await response.json();
     const result =
       data.candidates?.[0]?.content?.parts?.[0]?.text ||
@@ -233,29 +251,39 @@ const fetchDescription = async (place) => {
   return wikiDesc || (await generateGeminiDescription(place));
 };
 
-export default function MinimalNepalTravel() {
+export default function RecommendedInterests() {
+  const { user } = useContext(AuthContext);
+  const isLoggedIn = Boolean(user);
+  const navigate = useNavigate();
   const [selectedCategory, setSelectedCategory] = useState('nature');
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [placeImage, setPlaceImage] = useState(null);
+  const [imageError, setImageError] = useState(false);
   const [description, setDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState('');
+  const [adding, setAdding] = useState(false);
 
-  const handleCategoryChange = (category) => {
+  const handleCategoryChange = useCallback((category) => {
     setSelectedCategory(category);
     setSelectedPlace(null);
     setPlaceImage(null);
+    setImageError(false);
     setDescription('');
     setError(null);
     setIsLoading(false);
-  };
+    setSuccess('');
+  }, []);
 
-  const handlePlaceClick = async (place) => {
+  const handlePlaceClick = useCallback(async (place) => {
     setSelectedPlace(place);
     setIsLoading(true);
     setError(null);
     setPlaceImage(null);
+    setImageError(false);
     setDescription('');
+    setSuccess('');
 
     try {
       const searchQuery = activityToPlaceMap[place] || place;
@@ -265,24 +293,54 @@ export default function MinimalNepalTravel() {
       ]);
 
       setPlaceImage(image);
+      setImageError(!image);
       setDescription(desc);
     } catch (err) {
+      console.error(`Error loading details for ${place}:`, err);
       setError('Failed to load place details. Please try again.');
+      setPlaceImage(null);
+      setImageError(true);
+      setDescription('');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  // Capitalize category names for display
+ const handleAddToFavorites = useCallback(async () => {
+  if (!isLoggedIn) {
+    setError('Please log in to add favorites.');
+    return;
+  }
+  if (!selectedPlace) return;
+
+  setAdding(true);
+  setError('');
+  setSuccess('');
+  try {
+    await axios.post(
+      'http://localhost:8080/api/users/favorites',
+      { name: selectedPlace }, // 🔥 fixed key
+      { withCredentials: true }
+    );
+    setSuccess(`Added ${selectedPlace} to favorites.`);
+    setTimeout(() => setSuccess(''), 3000);
+  } catch (err) {
+    setError('Failed to add to favorites. Please try again.');
+    console.error('Error adding to favorites:', err);
+  } finally {
+    setAdding(false);
+  }
+}, [isLoggedIn, selectedPlace]);
+
+
   const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
 
-  // Memoize recommendations to prevent unnecessary re-renders
   const places = useMemo(() => recommendations[selectedCategory], [selectedCategory]);
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="border-b border-gray-100 py-6">
-        <h1 className="text-2xl font-light text-center text-gray-900">Nepal Travel Guide</h1>
+    <div className="min-h-screen bg-white font-sans text-gray-900">
+      <div className="border-b border-gray-200 py-6">
+        <h1 className="text-3xl font-light text-center text-gray-900">Nepal Travel Guide</h1>
       </div>
 
       <div className="max-w-6xl mx-auto p-6">
@@ -293,12 +351,7 @@ export default function MinimalNepalTravel() {
               <button
                 key={category}
                 onClick={() => handleCategoryChange(category)}
-                className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors rounded-md ${
-                  selectedCategory === category
-                    ? 'bg-gray-900 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-                aria-pressed={selectedCategory === category}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-900 hover:bg-gray-100"
                 aria-label={`Select ${capitalize(category)} category`}
               >
                 <Icon className="w-4 h-4" />
@@ -309,71 +362,112 @@ export default function MinimalNepalTravel() {
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
-          <div>
-            <h2 className="text-lg font-medium mb-4 text-gray-900">
-              {capitalize(selectedCategory)} Places
+          {/* Left Column: Places List */}
+          <div className="border border-gray-200 p-4">
+            <h2 className="text-xl font-medium mb-4 text-gray-900">
+              {capitalize(selectedCategory)} Destinations
             </h2>
-            <div className="grid gap-2 max-h-96 overflow-y-auto">
-              {places.map((place, index) => (
-                <button
-                  key={index}
-                  onClick={() => handlePlaceClick(place)}
-                  className={`text-left p-3 border rounded-md transition-colors ${
-                    selectedPlace === place
-                      ? 'border-gray-900 bg-gray-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                  aria-pressed={selectedPlace === place}
-                  aria-label={`Select ${place}`}
-                >
-                  <span className="text-sm text-gray-900">{place}</span>
-                </button>
-              ))}
+            <div className="grid gap-2 max-h-[400px] lg:max-h-[500px] overflow-y-auto pr-2">
+              {places.length > 0 ? (
+                places.map((place) => (
+                  <button
+                    key={`${selectedCategory}-${place}`}
+                    onClick={() => handlePlaceClick(place)}
+                    className="text-left p-3 border border-gray-200 text-gray-900 hover:bg-gray-100"
+                    aria-label={`View details for ${place}`}
+                  >
+                    <span className="text-base">{place}</span>
+                  </button>
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No places found for this category.</p>
+                </div>
+              )}
             </div>
           </div>
 
-          <div>
+          {/* Right Column: Place Details */}
+          <div className="border border-gray-200 p-6">
             {selectedPlace ? (
               <div>
-                <h2 className="text-lg font-medium mb-4 text-gray-900">Place Details</h2>
-                <div className="mb-4">
+                <h2 className="text-xl font-medium mb-4 text-gray-900">Place Details</h2>
+                <div className="mb-4 aspect-video bg-gray-100 flex items-center justify-center">
                   {isLoading ? (
-                    <div className="w-full h-64 bg-gray-200 animate-pulse rounded-md"></div>
-                  ) : placeImage ? (
-                    <div className="w-full h-64 overflow-hidden rounded-md bg-gray-100">
-                      <img
-                        src={placeImage}
-                        alt={`View of ${selectedPlace} in Nepal`}
-                        className="w-full h-full object-cover object-center"
-                      />
+                    <div className="w-full h-full bg-gray-200 animate-pulse flex items-center justify-center">
+                      <MapPin className="w-16 h-16 text-gray-400 animate-bounce-slow" />
+                    </div>
+                  ) : imageError || !placeImage ? (
+                    <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-500 text-sm flex-col">
+                      <ImageIcon className="w-12 h-12 mb-2 text-gray-400" />
+                      <span>No image available</span>
                     </div>
                   ) : (
-                    <div className="w-full h-64 bg-gray-100 flex items-center justify-center rounded-md">
-                      <span className="text-gray-500 text-sm">No image available</span>
-                    </div>
+                    <img
+                      src={placeImage}
+                      alt={`Scenic view of ${selectedPlace} in Nepal`}
+                      className="w-full h-full object-cover object-center"
+                      onError={() => {
+                        console.error(`Image failed to load for ${selectedPlace}: ${placeImage}`);
+                        setImageError(true);
+                      }}
+                      loading="lazy"
+                    />
                   )}
                 </div>
-                <h3 className="text-xl font-light mb-2 text-gray-900">{selectedPlace}</h3>
-                <span className="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs mb-4 rounded">
+                <h3 className="text-2xl font-medium mb-2 text-gray-900">{selectedPlace}</h3>
+                <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-medium mb-4">
                   {capitalize(selectedCategory)}
                 </span>
                 <div>
                   {isLoading ? (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       <div className="h-4 bg-gray-200 animate-pulse rounded"></div>
+                      <div className="h-4 bg-gray-200 animate-pulse w-5/6 rounded"></div>
                       <div className="h-4 bg-gray-200 animate-pulse w-3/4 rounded"></div>
                     </div>
                   ) : error ? (
-                    <p className="text-red-600 text-sm">{error}</p>
+                    <p className="text-red-600 text-sm font-medium mb-4">{error}</p>
                   ) : (
-                    <p className="text-gray-700 text-sm leading-relaxed">{description}</p>
+                    <>
+                      <p className="text-gray-700 text-base leading-relaxed mb-4">{description}</p>
+                      {success && (
+                        <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-md text-sm">
+                          {success}
+                        </div>
+                      )}
+                      <div className="flex space-x-2">
+                        <button
+                          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                          onClick={() => {
+                            navigate(`/plan?place=${encodeURIComponent(selectedPlace)}`);
+                            window.scrollTo(0, 0);
+                          }}
+                        >
+                          Plan My Trip
+                        </button>
+                        <button
+                          className="px-3 py-2 bg-transparent text-blue-600 rounded-md hover:bg-blue-100 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={handleAddToFavorites}
+                          disabled={adding || !isLoggedIn}
+                          title="Add to Favorites"
+                        >
+                          {adding ? (
+                            'Adding...'
+                          ) : (
+                            <Heart className="w-5 h-5" />
+                          )}
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
             ) : (
-              <div className="text-center py-12">
-                <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">Select a place to view details</p>
+              <div className="text-center py-20 flex flex-col items-center justify-center h-full">
+                <MapPin className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 text-lg">Select a place to view its details</p>
+                <p className="text-gray-400 text-sm mt-2">Discover the wonders of Nepal!</p>
               </div>
             )}
           </div>
