@@ -4,9 +4,12 @@ import { AuthContext } from '../../context/AuthContext';
 import { MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const UNSPLASH_ACCESS_KEY = 'Kvi9xQzqvJlcUPS4FN0tCQELubCDZaJqVC09hW7wiVg';
-const PIXABAY_ACCESS_KEY = '51460994-dcdee362e96d62a57b222a90a';
-const GEMINI_API_KEY = 'AIzaSyDJlDS7l3gNHOqACdT8UGDe6mIpLCAMN_o';
+
+
+const UNSPLASH_ACCESS_KEY = import.meta.env.VITE_UNSPLASH_ACCESS_KEY;
+const PIXABAY_ACCESS_KEY = import.meta.env.VITE_PIXABAY_ACCESS_KEY;
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
 const cache = new Map();
 
 const fetchImage = async (query) => {
